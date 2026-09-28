@@ -139,6 +139,20 @@ function refreshSessionUser($db){
 
 $action = $_GET['a'] ?? '';
 
+/* เปิด api.php?a=health เพื่อตรวจว่า hosting พร้อมใช้งาน (ไม่แสดงข้อมูลลับ) */
+if ($action === 'health') {
+  $checks = ['php_version'=>PHP_VERSION, 'php_ok'=>PHP_VERSION_ID >= 70400, 'json'=>function_exists('json_encode'), 'sessions'=>session_status() === PHP_SESSION_ACTIVE];
+  $dir = $dataDir;
+  if (!is_dir($dir)) @mkdir($dir, 0775, true);
+  $checks['data_folder_writable'] = is_dir($dir) && is_writable($dir);
+  if ($checks['data_folder_writable']) dataFilePath(); // creates the protection files
+  $checks['data_folder_protected'] = file_exists($dir.'/.htaccess');
+  $checks['sku_csv_found'] = file_exists($csvFile);
+  $checks['ready'] = $checks['php_ok'] && $checks['json'] && $checks['sessions'] && $checks['data_folder_writable'];
+  $checks['message'] = $checks['ready'] ? 'พร้อมใช้งาน ✓' : 'ยังไม่พร้อม — ดูค่าที่เป็น false';
+  respond($checks);
+}
+
 if ($action === 'me') {
   $defaultAdmin = withDb(function($db){
     foreach ($db['users'] as $u) {
