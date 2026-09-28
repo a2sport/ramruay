@@ -440,7 +440,7 @@ function ensureDailyResetState(){
   }
 }
 function isUserBusy(){
-  if(currentView==='import' || currentView==='importfix') return true;
+  if(currentView==='import' || currentView==='importfix' || currentView==='addsku') return true;
   if(document.querySelector('#modalRoot .modal-bg')) return true;
   const a=document.activeElement;
   if(a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return true;
@@ -1624,22 +1624,78 @@ function showSkuDetail(pid){
 }
 
 /* ---------- Add SKU ---------- */
+let addSkuTab = 'bulk';
+let bulkPreview = null;
+function parseBulkSku(text, defaultBrand){
+  const lines = String(text||'').split(/\r?\n/);
+  const known = knownSkuSet();
+  const seen = new Map(); const rows = [];
+  lines.forEach((line, idx) => {
+    if(!line.trim()) return;
+    // รองรับ: วางจาก Excel (Tab), คั่นด้วย , หรือ ; หรือ |  — คอลัมน์แรก = SKU, คอลัมน์ที่สอง = แบรนด์
+    const parts = line.split(/\t|,|;|\|/).map(x => x.trim());
+    const raw = parts[0] || '';
+    if(idx === 0 && /^sku$/i.test(raw)) return; // แถวหัวตาราง
+    const brand = parts[1] || defaultBrand || '';
+    const sku = normalizeBaseSku(raw);
+    const row = {line: idx+1, raw, sku, brand, status: 'new', note: ''};
+    const problem = skuProblem(sku);
+    if(problem){ row.status = 'bad'; row.note = problem; }
+    else if(seen.has(sku.toUpperCase())){ row.status = 'dup'; row.note = 'ซ้ำกับบรรทัด '+seen.get(sku.toUpperCase()); }
+    else if(known.has(sku.toUpperCase())){ row.status = 'exists'; row.note = 'มีในระบบแล้ว'; }
+    if(row.status !== 'bad' && !seen.has(sku.toUpperCase())) seen.set(sku.toUpperCase(), idx+1);
+    rows.push(row);
+  });
+  return rows;
+}
 function renderAddSku(){
+  const brands = [...new Set(DB.products.map(p=>p.brand).filter(Boolean))].sort();
+  const tabBtn = (id, label) => `<button class="btn btn-sm ${addSkuTab===id?'btn-primary':'btn-ghost'}" data-addsku-tab="${id}">${label}</button>`;
+  const pill = st => ({new:'<span class="pill pill-done">ใหม่</span>', exists:'<span class="pill pill-progress">มีแล้ว</span>', dup:'<span class="pill pill-pending">ซ้ำในรายการ</span>', bad:'<span class="pill" style="background:#fee2e2;color:#b91c1c">ไม่ถูกต้อง</span>'}[st]);
+  const counts = bulkPreview ? bulkPreview.reduce((c,r)=>(c[r.status]=(c[r.status]||0)+1,c),{}) : {};
   $('#view').innerHTML = `
-  <div class="fade-in max-w-xl mx-auto">
+  <div class="fade-in max-w-2xl mx-auto space-y-4">
+    <div class="flex gap-2">${tabBtn('bulk','เพิ่มเป็นชุด')}${tabBtn('single','เพิ่มทีละตัว')}</div>
+    <datalist id="brandList">${brands.map(b=>`<option value="${esc(b)}">`).join('')}</datalist>
+    ${addSkuTab==='single' ? `
     <div class="card p-6 space-y-4">
       <h3 class="font-bold text-lg flex items-center gap-2"><i data-lucide="plus-circle" class="w-5 h-5 text-brand-600"></i>เพิ่มสินค้าใหม่</h3>
       <div><label class="text-sm font-medium text-slate-600 mb-1 block">SKU <span class="text-red-500">*</span></label>
-        <input id="addSku" class="input font-mono" placeholder="เช่น 020666Grand"></div>
+        <input id="addSku" class="input font-mono" placeholder="เช่น 020666"></div>
       <div><label class="text-sm font-medium text-slate-600 mb-1 block">ชื่อสินค้า</label>
         <input id="addName" class="input" placeholder="เช่น เสื้อบอล ทีมชาติ 2026"></div>
       <div><label class="text-sm font-medium text-slate-600 mb-1 block">แบรนด์</label>
-        <input id="addBrand" class="input" placeholder="เช่น Grand Sport / Pegan / Warrix" list="brandList">
-        <datalist id="brandList">${[...new Set(DB.products.map(p=>p.brand).filter(Boolean))].map(b=>`<option value="${esc(b)}">`).join('')}</datalist></div>
+        <input id="addBrand" class="input" placeholder="เช่น Grand Sport / Pegan / Warrix" list="brandList"></div>
       <button id="addBtn" class="btn btn-primary w-full py-3"><i data-lucide="save" class="w-4 h-4"></i>เพิ่มสินค้า</button>
       <p class="text-xs text-slate-400 text-center">ระบบจะตรวจสอบ SKU ซ้ำก่อนบันทึกอัตโนมัติ</p>
-    </div>
+    </div>` : `
+    <div class="card p-6 space-y-4">
+      <h3 class="font-bold text-lg flex items-center gap-2"><i data-lucide="list-plus" class="w-5 h-5 text-brand-600"></i>เพิ่ม SKU เป็นชุด</h3>
+      <p class="text-xs text-slate-500">บรรทัดละ 1 SKU ในรูปแบบ <span class="font-mono bg-slate-100 px-1 rounded">SKU, แบรนด์</span> หรือคัดลอก 2 คอลัมน์ (SKU | แบรนด์) จาก Excel มาวางได้เลย · ระบบตัดสี/ไซส์ออกให้อัตโนมัติ</p>
+      <textarea id="bulkSkuText" class="input font-mono" rows="10" placeholder="020666, Grand Sport&#10;WA-214PLACL32, Warrix&#10;PM226-แดง-S, Ego&#10;A101"></textarea>
+      <div><label class="text-sm font-medium text-slate-600 mb-1 block">แบรนด์เริ่มต้น <span class="text-xs text-slate-400 font-normal">(ใช้กับบรรทัดที่ไม่ได้ใส่แบรนด์)</span></label>
+        <input id="bulkBrand" class="input" placeholder="เช่น Grand Sport" list="brandList"></div>
+      <button id="bulkCheck" class="btn btn-soft w-full py-2.5"><i data-lucide="scan-search" class="w-4 h-4"></i>ตรวจสอบรายการ</button>
+      ${bulkPreview ? `
+      <div class="border rounded-xl p-4 fade-in" style="border-color:var(--border);">
+        <div class="grid grid-cols-4 gap-2 mb-3 text-center">
+          <div class="p-2 rounded-lg bg-green-50"><p class="text-xl font-extrabold badge-num text-done">${counts.new||0}</p><p class="text-[11px] text-slate-500">เพิ่มใหม่</p></div>
+          <div class="p-2 rounded-lg bg-amber-50"><p class="text-xl font-extrabold badge-num text-progress">${counts.exists||0}</p><p class="text-[11px] text-slate-500">มีในระบบแล้ว</p></div>
+          <div class="p-2 rounded-lg bg-slate-50"><p class="text-xl font-extrabold badge-num">${counts.dup||0}</p><p class="text-[11px] text-slate-500">ซ้ำในรายการ</p></div>
+          <div class="p-2 rounded-lg bg-red-50"><p class="text-xl font-extrabold badge-num text-red-600">${counts.bad||0}</p><p class="text-[11px] text-slate-500">ไม่ถูกต้อง</p></div>
+        </div>
+        <div class="max-h-72 overflow-y-auto border rounded-lg mb-3" style="border-color:var(--border);">
+          <table class="data"><thead><tr><th>บรรทัด</th><th>ที่พิมพ์</th><th>SKU ที่บันทึก</th><th>แบรนด์</th><th>สถานะ</th></tr></thead><tbody>
+            ${bulkPreview.map(r=>`<tr><td class="text-xs text-slate-400">${r.line}</td><td class="font-mono text-xs text-slate-400">${esc(r.raw)}</td><td class="font-mono text-xs font-semibold">${esc(r.sku)}</td><td class="text-xs">${esc(r.brand||'-')}</td><td>${pill(r.status)}${r.note&&r.status!=='exists'?`<div class="text-[10px] text-slate-400 mt-0.5">${esc(r.note)}</div>`:''}</td></tr>`).join('')}
+          </tbody></table>
+        </div>
+        ${counts.exists ? `<label class="flex items-center gap-2 text-xs text-slate-600 mb-3 cursor-pointer"><input type="checkbox" id="bulkUpdateBrand"> อัปเดตแบรนด์ของ SKU ที่มีในระบบแล้ว (${counts.exists} รายการ)</label>` : ''}
+        <button id="bulkSave" class="btn btn-primary w-full py-3" ${(counts.new||counts.exists)?'':'disabled style="opacity:.4;cursor:not-allowed;"'}><i data-lucide="save" class="w-4 h-4"></i>บันทึก ${counts.new||0} SKU ใหม่</button>
+      </div>` : ''}
+    </div>`}
   </div>`;
+  const ta = document.getElementById('bulkSkuText'); if(ta && bulkPreview && bulkPreview._text!==undefined) ta.value = bulkPreview._text;
+  const bb = document.getElementById('bulkBrand'); if(bb && bulkPreview && bulkPreview._brand!==undefined) bb.value = bulkPreview._brand;
   if(window.lucide) lucide.createIcons();
 }
 
@@ -2357,7 +2413,7 @@ function renderSettings(){
    EVENT DELEGATION
    ============================================================ */
 document.addEventListener('click', e=>{
-  const t = e.target.closest('[data-nav],[data-goto-sku],[data-goto-check],[data-mark-done],[data-mark-progress],[data-undo],[data-bs-pid],[data-tt-add],[data-tt-edit],[data-detail-mark],[data-detail-go],[data-copy-user],[data-export-user],[data-toggle-user],[data-del-user],[data-del-shop],[data-lst-page],[data-chk-status],[data-reset-pw],[data-deactivate-product],[data-assign-shops],[data-save-user-shop],[data-tiktok-new],[data-tiktok-delete],[data-open-news],[data-news-prev],[data-news-next],[data-news-dot],[data-fix-filter],[data-fix-save],[data-fix-skip],[data-fix-del],[data-fix-reopen],[data-fix-export],[data-fix-clear-done]');
+  const t = e.target.closest('[data-nav],[data-goto-sku],[data-goto-check],[data-mark-done],[data-mark-progress],[data-undo],[data-bs-pid],[data-tt-add],[data-tt-edit],[data-detail-mark],[data-detail-go],[data-copy-user],[data-export-user],[data-toggle-user],[data-del-user],[data-del-shop],[data-lst-page],[data-chk-status],[data-reset-pw],[data-deactivate-product],[data-assign-shops],[data-save-user-shop],[data-tiktok-new],[data-tiktok-delete],[data-open-news],[data-news-prev],[data-news-next],[data-news-dot],[data-fix-filter],[data-addsku-tab],[data-fix-save],[data-fix-skip],[data-fix-del],[data-fix-reopen],[data-fix-export],[data-fix-clear-done]');
   if(!t) return;
   const pid = t.dataset.markDone || t.dataset.markProgress || t.dataset.undo || t.dataset.bsPid || t.dataset.ttAdd || t.dataset.ttEdit;
   if(t.dataset.nav){
@@ -2409,6 +2465,7 @@ document.addEventListener('click', e=>{
     }
     return;
   }
+  if(t.dataset.addskuTab){ addSkuTab = t.dataset.addskuTab; renderAddSku(); return; }
   if(t.dataset.fixFilter){ importFixFilter = t.dataset.fixFilter; renderImportFix(); return; }
   if(t.dataset.fixSave){ saveImportFix(t.dataset.fixSave); return; }
   if(t.dataset.fixSkip || t.dataset.fixReopen){
@@ -2553,6 +2610,30 @@ document.addEventListener('click', e=>{
     checkState.selected.forEach(pid=>markWork(pid, checkState.platform, checkState.shopId, 'done'));
     toast('ทำเครื่องหมายทำแล้ว '+checkState.selected.size+' รายการ');
     checkState.selected.clear(); renderCheck();
+  }
+  else if(e.target.id==='bulkCheck' || e.target.closest('#bulkCheck')){
+    const text = $('#bulkSkuText').value, brand = $('#bulkBrand').value.trim();
+    if(!text.trim()){ toast('กรุณาวางรายการ SKU','error'); return; }
+    bulkPreview = parseBulkSku(text, brand); bulkPreview._text = text; bulkPreview._brand = brand;
+    renderAddSku();
+  }
+  else if(e.target.id==='bulkSave' || e.target.closest('#bulkSave')){
+    if(!bulkPreview) return;
+    // re-check against the latest data (someone else may have added SKUs meanwhile)
+    const rows = parseBulkSku(bulkPreview._text, bulkPreview._brand);
+    const upd = document.getElementById('bulkUpdateBrand')?.checked;
+    let added = 0, updated = 0;
+    rows.forEach(r => {
+      if(r.status === 'new'){ DB.products.push({id:uid(), sku:r.sku, name:'', brand:r.brand, created_at:nowISO(), active:true}); added++; }
+      else if(r.status === 'exists' && upd && r.brand){
+        const ex = DB.products.find(p => String(p.sku||'').trim().toUpperCase() === r.sku.toUpperCase());
+        if(ex && ex.brand !== r.brand){ ex.brand = r.brand; ex.updated_at = nowISO(); updated++; }
+      }
+    });
+    logHistory('bulk_add_product', 'เพิ่ม '+added+' SKU'+(updated?(', อัปเดตแบรนด์ '+updated):''));
+    saveDB();
+    toast('เพิ่ม '+added+' SKU สำเร็จ'+(updated?(' · อัปเดตแบรนด์ '+updated+' รายการ'):''));
+    bulkPreview = null; renderAddSku();
   }
   else if(e.target.id==='addBtn' || e.target.closest('#addBtn')){
     const sku=$('#addSku').value.trim(), name=$('#addName').value.trim(), brand=$('#addBrand').value.trim();
