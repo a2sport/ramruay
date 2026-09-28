@@ -1977,8 +1977,10 @@ function handleImportFile(file){
             ${items.length>50?`<p class="text-xs text-center text-slate-400 py-2">แสดง 50 จาก ${items.length} รายการ</p>`:''}
           </div>
           <div class="flex gap-2 flex-wrap">
+            ${(()=>{ const sh=selectedShop; if(!sh) return ''; const already=items.filter(it=>{ const pr=DB.products.find(x=>String(x.sku||'').trim().toUpperCase()===String(it.baseSku||it.sku).toUpperCase()); const w=pr&&getWorklog(pr.id, sh.platform, sh.id); return w&&w.status==='done'; }).length;
+              return `<label style="flex-basis:100%" class="flex items-center gap-2 text-sm font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 cursor-pointer"><input type="checkbox" id="impMarkDone" checked> บันทึกสถานะ "ทำแล้ว" ที่ร้าน ${esc(sh.platform)} / ${esc(sh.code)} ให้ ${items.length} SKU ในไฟล์ <span class="font-normal text-xs text-emerald-600">(${already} SKU ทำแล้วอยู่ก่อน · จะเพิ่ม ${items.length-already})</span></label>`; })()}
             <label style="flex-basis:100%" class="flex items-center gap-2 text-xs text-slate-600 cursor-pointer"><input type="checkbox" id="impUpdate" checked> อัปเดตชื่อ/แบรนด์ของ SKU ที่มีอยู่แล้ว (<span class="badge-num">${dup.length}</span> รายการ)</label>
-            <button id="importConfirm" class="btn btn-primary flex-1 py-2.5" ${(fresh.length===0 && dup.length===0 && failed.length===0)?'disabled style="opacity:.4;cursor:not-allowed;"':''}><i data-lucide="download" class="w-4 h-4"></i>${fresh.length?('นำเข้า '+fresh.length+' SKU'):dup.length?('อัปเดต '+dup.length+' SKU ที่มีอยู่'):('ส่ง '+failed.length+' รายการไปหน้าแก้ไข')}</button>
+            <button id="importConfirm" class="btn btn-primary flex-1 py-2.5" ${(fresh.length===0 && dup.length===0 && failed.length===0)?'disabled style="opacity:.4;cursor:not-allowed;"':''}><i data-lucide="download" class="w-4 h-4"></i>${items.length?('นำเข้า / บันทึก '+items.length+' SKU'):('ส่ง '+failed.length+' รายการไปหน้าแก้ไข')}</button>
             ${failed.length?`<button id="importFailedExport" class="btn btn-ghost flex-1 py-2.5"><i data-lucide="file-warning" class="w-4 h-4"></i>Export ไม่สำเร็จ</button>`:''}
             <button id="importCancel" class="btn btn-ghost">ยกเลิก</button>
           </div>
@@ -2734,16 +2736,33 @@ document.addEventListener('click', e=>{
     importPreview.fresh.forEach(i=>DB.products.push({id:uid(), sku:(i.baseSku||i.sku), name:i.name, brand:i.brand, created_at:nowISO(), active:true}));
     const nFail = recordImportFailures(importPreview);
     const importedShop = DB.shops.find(s => s.id === (importPreview?.shop_id || importSelectedShopId)) || DB.shops[0];
+    let marked = 0;
+    const markBox = document.getElementById('impMarkDone');
+    if(importedShop && (!markBox || markBox.checked)){
+      if(!isAdmin() && !canAccessShop(importedShop.id)){ toast('ร้านนี้ไม่ได้รับมอบหมายให้คุณ — ไม่ได้บันทึกสถานะ','error'); }
+      else {
+        const today = todayISO(), now = nowISO();
+        importPreview.items.forEach(it => {
+          const pr = DB.products.find(x => String(x.sku||'').trim().toUpperCase() === String(it.baseSku||it.sku).toUpperCase());
+          if(!pr) return;
+          if(pr.active === false) pr.active = true;
+          const w = getWorklog(pr.id, importedShop.platform, importedShop.id);
+          if(w && w.status === 'done') return; // ทำแล้วอยู่ก่อน — เก็บคนทำ/วันที่เดิมไว้
+          if(w){ w.status='done'; w.user_id=currentUser.id; w.work_date=today; w.updated_at=now; }
+          else DB.worklogs.push({id:uid(), product_id:pr.id, platform:importedShop.platform, shop_id:importedShop.id, user_id:currentUser.id, status:'done', bigseller_done:false, bigseller_by:null, bigseller_at:null, work_date:today, created_at:now, updated_at:now, source:'import'});
+          marked++;
+        });
+        if(marked) logHistory('import_mark_done', 'ทำเครื่องหมายทำแล้ว '+marked+' SKU @ '+importedShop.platform+'/'+importedShop.code+' จากไฟล์ '+(importPreview.file_name||'-'));
+      }
+    }
     if(importedShop){
       checkState.platform = importedShop.platform || 'Shopee';
       checkState.shopId = importedShop.id;
       checkState.selected.clear();
-      if(Array.isArray(importPreview?.items) && importPreview.items.length){
-        checkState.q = importPreview.items[0].baseSku || importPreview.items[0].sku || '';
-      }
+      checkState.q = ''; checkState.status = 'all';
     }
     logHistory('import_excel', 'นำเข้า '+importPreview.fresh.length+' SKU ใหม่, อัปเดต '+updated+' SKU');
-    saveDB(); toast('นำเข้า '+importPreview.fresh.length+' SKU สำเร็จ'+(updated?(' · อัปเดต '+updated+' รายการที่มีอยู่'):'')+(nFail?(' · มี '+nFail+' รายการต้องแก้ไข'):''), nFail?'info':'success'); importPreview=null; navTo(nFail?'importfix':'check');
+    saveDB(); toast('นำเข้า '+importPreview.fresh.length+' SKU ใหม่'+(marked?(' · บันทึกทำแล้ว '+marked+' SKU ที่ร้าน '+importedShop.code):'')+(updated?(' · อัปเดต '+updated+' รายการ'):'')+(nFail?(' · มี '+nFail+' รายการต้องแก้ไข'):''), nFail?'info':'success'); importPreview=null; navTo(marked ? 'check' : (nFail?'importfix':'check'));
   }
   else if(e.target.id==='importFailedExport' || e.target.closest('#importFailedExport')){
     if(!importPreview || !Array.isArray(importPreview.failed) || !importPreview.failed.length) return;
