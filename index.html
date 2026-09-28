@@ -1397,7 +1397,7 @@ function renderCheck(){
           <label class="text-xs font-semibold text-slate-500 mb-1 block">ค้นหา SKU / ชื่อ / แบรนด์</label>
           <div class="relative">
             <i data-lucide="search" class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"></i>
-            <input id="chkSearch" class="input pl-9" placeholder="พิมพ์ SKU เช่น 020666Grand" value="${esc(checkState.q)}" autofocus>
+            <input id="chkSearch" class="input pl-9" placeholder="พิมพ์ SKU เช่น 020666" value="${esc(checkState.q)}" autofocus>
           </div>
         </div>
       </div>
@@ -1420,11 +1420,11 @@ function renderCheck(){
       <div class="overflow-x-auto">
       <table class="data">
         <thead><tr>
-          <th style="width:36px;"></th><th>SKU</th><th>ชื่อสินค้า</th><th>แบรนด์</th><th>สถานะงาน</th><th>BigSeller</th>
+          <th style="width:36px;"></th><th>SKU</th><th>แบรนด์</th><th>สถานะงาน</th><th>BigSeller</th>
           <th style="width:140px;">ดำเนินการ</th>
         </tr></thead>
         <tbody id="chkTbody">
-          ${products.length===0?'<tr><td colspan="7" class="text-center py-10 text-slate-400">ไม่พบ SKU — <button class="text-brand-600 font-semibold underline" data-nav="addsku">เพิ่ม SKU ใหม่</button> หรือ <button class="text-brand-600 font-semibold underline" data-nav="import">Import Excel</button></td></tr>':
+          ${products.length===0?'<tr><td colspan="6" class="text-center py-10 text-slate-400">ไม่พบ SKU — <button class="text-brand-600 font-semibold underline" data-nav="addsku">เพิ่ม SKU ใหม่</button> หรือ <button class="text-brand-600 font-semibold underline" data-nav="import">Import Excel</button></td></tr>':
           products.map(p=>{
             const w = getWorklog(p.id, checkState.platform, checkState.shopId);
             const st = w?w.status:'pending';
@@ -1433,7 +1433,6 @@ function renderCheck(){
             return `<tr>
               <td><input type="checkbox" class="w-4 h-4 chk-row" data-pid="${p.id}" ${checked}></td>
               <td class="font-mono font-semibold cursor-pointer text-brand-700 hover:underline" data-goto-sku="${p.id}">${esc(p.sku)}</td>
-              <td class="max-w-[200px] truncate" title="${esc(p.name)}">${esc(p.name)}</td>
               <td><span class="text-xs text-slate-500">${esc(p.brand||'-')}</span></td>
               <td>${statusPill(st)}${w?`<div class="text-[10px] text-slate-400 mt-0.5">${esc(userById(w.user_id)?.name||'-')} · ${fmtDate(w.work_date)}</div>`:''}</td>
               <td>
