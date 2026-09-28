@@ -1535,9 +1535,9 @@ function renderSkuList(){
       <div class="px-4 py-3 border-b text-sm text-slate-500" style="border-color:var(--border);">รวม <b class="badge-num">${rows.length}</b> รายการ · หน้า ${listState.page}/${totalPages}</div>
       <div class="overflow-x-auto">
       <table class="data">
-        <thead><tr><th>SKU</th><th>แบรนด์</th><th>Platform</th><th>ร้าน</th><th>สถานะงาน</th><th>BigSeller</th><th>คนทำ</th><th>วันที่</th><th>TikTok</th></tr></thead>
+        <thead><tr><th>SKU</th><th>แบรนด์</th><th>Platform</th><th>ร้าน</th><th>สถานะงาน</th><th>BigSeller</th><th>คนทำ</th><th>วันที่</th></tr></thead>
         <tbody>
-          ${pageRows.length===0?'<tr><td colspan="9" class="text-center py-10 text-slate-400">ไม่พบข้อมูล</td></tr>':
+          ${pageRows.length===0?'<tr><td colspan="8" class="text-center py-10 text-slate-400">ไม่พบข้อมูล</td></tr>':
           pageRows.map(r=>{
             const p=r.p, s=r.shopId?shopById(r.shopId):null, w=r.w, st=w?w.status:'pending', t=w?tiktokOf(w.id):null;
             return `<tr style="cursor:pointer" data-goto-sku="${p.id}">
@@ -1549,7 +1549,6 @@ function renderSkuList(){
               <td>${bigsellerPill(w)}</td>
               <td class="text-xs">${w?esc(userById(w.user_id)?.name||'-'):'<span class="text-slate-300">-</span>'}</td>
               <td class="text-xs text-slate-500">${w?fmtDate(w.work_date):'-'}</td>
-              <td>${t?`<a href="${esc(t.url)}" target="_blank" class="pill pill-tiktok" onclick="event.stopPropagation()"><i data-lucide="external-link" class="w-3 h-3"></i>เปิด</a>`:'<span class="text-slate-300 text-xs">-</span>'}</td>
             </tr>`;
           }).join('')}
         </tbody>
