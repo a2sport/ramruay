@@ -1535,9 +1535,9 @@ function renderSkuList(){
       <div class="px-4 py-3 border-b text-sm text-slate-500" style="border-color:var(--border);">รวม <b class="badge-num">${rows.length}</b> รายการ · หน้า ${listState.page}/${totalPages}</div>
       <div class="overflow-x-auto">
       <table class="data">
-        <thead><tr><th>SKU</th><th>แบรนด์</th><th>Platform</th><th>ร้าน</th><th>สถานะงาน</th><th>BigSeller</th><th>คนทำ</th><th>วันที่</th></tr></thead>
+        <thead><tr><th>SKU</th><th>แบรนด์</th><th>Platform</th><th>ร้าน</th><th>สถานะงาน</th><th>BigSeller</th><th>คนทำ</th><th>วันที่</th><th style="width:44px"></th></tr></thead>
         <tbody>
-          ${pageRows.length===0?'<tr><td colspan="8" class="text-center py-10 text-slate-400">ไม่พบข้อมูล</td></tr>':
+          ${pageRows.length===0?'<tr><td colspan="9" class="text-center py-10 text-slate-400">ไม่พบข้อมูล</td></tr>':
           pageRows.map(r=>{
             const p=r.p, s=r.shopId?shopById(r.shopId):null, w=r.w, st=w?w.status:'pending', t=w?tiktokOf(w.id):null;
             return `<tr style="cursor:pointer" data-goto-sku="${p.id}">
@@ -1549,6 +1549,7 @@ function renderSkuList(){
               <td>${bigsellerPill(w)}</td>
               <td class="text-xs">${w?esc(userById(w.user_id)?.name||'-'):'<span class="text-slate-300">-</span>'}</td>
               <td class="text-xs text-slate-500">${w?fmtDate(w.work_date):'-'}</td>
+              <td><button class="btn btn-ghost btn-sm" data-edit-product="${p.id}" title="แก้ไข SKU / แบรนด์"><i data-lucide="pencil" class="w-3.5 h-3.5"></i></button></td>
             </tr>`;
           }).join('')}
         </tbody>
@@ -1582,7 +1583,7 @@ function showSkuDetail(pid){
     <div class="flex items-start justify-between mb-4">
       <div>
         <p class="text-xs text-slate-400 font-medium">SKU Detail</p>
-        <h3 class="text-xl font-extrabold font-mono">${esc(p.sku)}</h3>
+        <h3 class="text-xl font-extrabold font-mono flex items-center gap-2">${esc(p.sku)}<button class="btn btn-ghost btn-sm" data-edit-product="${p.id}" title="แก้ไข SKU / แบรนด์"><i data-lucide="pencil" class="w-3.5 h-3.5"></i>แก้ไข</button></h3>
         <p class="text-sm text-slate-500">${esc(p.name||'')} · <b>${esc(p.brand||'-')}</b></p>
       </div>
       <div class="text-right">
@@ -1619,6 +1620,59 @@ function showSkuDetail(pid){
   if(window.lucide) lucide.createIcons();
   modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
   modal.querySelector('#detailClose').addEventListener('click', ()=>modal.remove());
+}
+
+/* ---------- Edit SKU ---------- */
+function openEditProduct(pid){
+  const p = productById(pid); if(!p) return;
+  const brands = [...new Set(DB.products.map(x=>x.brand).filter(Boolean))].sort();
+  const modal = document.createElement('div');
+  modal.className = 'modal-bg';
+  modal.innerHTML = `
+    <div class="card w-full max-w-md p-5 fade-in">
+      <div class="flex items-start justify-between mb-4">
+        <div><p class="text-xs text-slate-400 font-medium">แก้ไขสินค้า</p><h3 class="text-xl font-bold font-mono">${esc(p.sku)}</h3></div>
+        <button class="btn btn-ghost btn-sm" data-close-edit>ปิด</button>
+      </div>
+      <div class="space-y-3">
+        <div><label class="text-sm font-medium text-slate-600 mb-1 block">SKU <span class="text-red-500">*</span></label>
+          <input id="editSku" class="input font-mono" value="${esc(p.sku)}"></div>
+        <div><label class="text-sm font-medium text-slate-600 mb-1 block">แบรนด์</label>
+          <input id="editBrand" class="input" value="${esc(p.brand||'')}" list="editBrandList">
+          <datalist id="editBrandList">${brands.map(b=>`<option value="${esc(b)}">`).join('')}</datalist></div>
+        <p class="text-[11px] text-slate-400">งานที่ทำไว้, BigSeller และลิงก์ TikTok ของ SKU นี้จะยังอยู่ครบหลังแก้ไข · ระบบตัดสี/ไซส์ออกให้อัตโนมัติ</p>
+      </div>
+      <div class="flex gap-2 mt-5">
+        <button class="btn btn-ghost flex-1" data-close-edit>ยกเลิก</button>
+        <button class="btn btn-primary flex-1" data-save-edit><i data-lucide="save" class="w-4 h-4"></i>บันทึก</button>
+      </div>
+    </div>`;
+  const save = () => {
+    const raw = modal.querySelector('#editSku').value.trim();
+    const parts = raw.split(/\s*-\s*/).map(x=>x.trim()).filter(Boolean);
+    const sku = parts.length > 1 ? stripSkuVariant(parts).join('-') : raw; // ตัดสี/ไซส์ตามกฎ ไม่อิง SKU เดิมของตัวเอง
+    const brand = modal.querySelector('#editBrand').value.trim();
+    const problem = skuProblem(sku);
+    if(problem){ toast(problem,'error'); return; }
+    const clash = DB.products.find(x => x.id !== p.id && String(x.sku||'').trim().toUpperCase() === sku.toUpperCase());
+    if(clash){ toast('SKU '+sku+' มีอยู่แล้วในระบบ'+(clash.active===false?' (ถูกปิดใช้)':''),'error'); return; }
+    if(sku === p.sku && brand === (p.brand||'')){ modal.remove(); return; }
+    const before = p.sku + (p.brand?' ('+p.brand+')':'');
+    p.sku = sku; p.brand = brand; p.updated_at = nowISO();
+    logHistory('edit_product', before+' → '+sku+(brand?' ('+brand+')':''));
+    saveDB();
+    modal.remove();
+    toast('แก้ไข SKU เรียบร้อย');
+    $('#modalRoot').innerHTML = ''; renderCurrentView(); showSkuDetail(p.id);
+  };
+  modal.addEventListener('click', e => {
+    if(e.target === modal || e.target.closest('[data-close-edit]')){ modal.remove(); return; }
+    if(e.target.closest('[data-save-edit]')) save();
+  });
+  modal.addEventListener('keydown', e => { if(e.key==='Enter') save(); });
+  $('#modalRoot').appendChild(modal);
+  if(window.lucide) lucide.createIcons();
+  const inp = modal.querySelector('#editSku'); inp.focus(); inp.select();
 }
 
 /* ---------- Add SKU ---------- */
@@ -2411,7 +2465,7 @@ function renderSettings(){
    EVENT DELEGATION
    ============================================================ */
 document.addEventListener('click', e=>{
-  const t = e.target.closest('[data-nav],[data-goto-sku],[data-goto-check],[data-mark-done],[data-mark-progress],[data-undo],[data-bs-pid],[data-tt-add],[data-tt-edit],[data-detail-mark],[data-detail-go],[data-copy-user],[data-export-user],[data-toggle-user],[data-del-user],[data-del-shop],[data-lst-page],[data-chk-status],[data-reset-pw],[data-deactivate-product],[data-assign-shops],[data-save-user-shop],[data-tiktok-new],[data-tiktok-delete],[data-open-news],[data-news-prev],[data-news-next],[data-news-dot],[data-fix-filter],[data-addsku-tab],[data-fix-save],[data-fix-skip],[data-fix-del],[data-fix-reopen],[data-fix-export],[data-fix-clear-done]');
+  const t = e.target.closest('[data-nav],[data-goto-sku],[data-goto-check],[data-mark-done],[data-mark-progress],[data-undo],[data-bs-pid],[data-tt-add],[data-tt-edit],[data-detail-mark],[data-detail-go],[data-copy-user],[data-export-user],[data-toggle-user],[data-del-user],[data-del-shop],[data-lst-page],[data-chk-status],[data-reset-pw],[data-deactivate-product],[data-edit-product],[data-assign-shops],[data-save-user-shop],[data-tiktok-new],[data-tiktok-delete],[data-open-news],[data-news-prev],[data-news-next],[data-news-dot],[data-fix-filter],[data-addsku-tab],[data-fix-save],[data-fix-skip],[data-fix-del],[data-fix-reopen],[data-fix-export],[data-fix-clear-done]');
   if(!t) return;
   const pid = t.dataset.markDone || t.dataset.markProgress || t.dataset.undo || t.dataset.bsPid || t.dataset.ttAdd || t.dataset.ttEdit;
   if(t.dataset.nav){
@@ -2551,6 +2605,7 @@ document.addEventListener('click', e=>{
     saveDB(); toast('ปรับสิทธิ์ร้านสำเร็จ'); $('#modalRoot').innerHTML=''; renderUsers(); return;
   }
   if(t.dataset.resetPw){ const np=prompt('รหัสผ่านใหม่ (อย่างน้อย 4 ตัวอักษร)'); if(np===null) return; if(np.length<4){toast('รหัสสั้นเกินไป','error');return;} const uu=userById(t.dataset.resetPw); if(uu){ if(apiMode) uu.new_password=np; else uu.pass=hash(np); saveDB(); toast('รีเซ็ตรหัสผ่านของ '+uu.name+' เรียบร้อย'); } return; }
+  if(t.dataset.editProduct){ openEditProduct(t.dataset.editProduct); return; }
   if(t.dataset.deactivateProduct){ const pp=productById(t.dataset.deactivateProduct); if(pp && confirm('ปิดใช้ SKU '+pp.sku+'? (จะไม่แสดงในการค้นหา)')){ pp.active=false; saveDB(); $('#modalRoot').innerHTML=''; toast('ปิดใช้สินค้าแล้ว'); navTo('skulist'); } return; }
   if(t.dataset.delShop){ if(confirm('ลบร้านนี้? งานที่บันทึกไว้กับร้านนี้จะถูกลบด้วย')){ const sid=t.dataset.delShop; const wids=new Set(DB.worklogs.filter(w=>w.shop_id===sid).map(w=>w.id)); DB.shops=DB.shops.filter(s=>s.id!==sid); DB.worklogs=DB.worklogs.filter(w=>w.shop_id!==sid); DB.tiktoks=DB.tiktoks.filter(x=>!wids.has(x.worklog_id)); DB.users.forEach(u=>{ if(Array.isArray(u.shop_ids)) u.shop_ids=u.shop_ids.filter(id=>id!==sid); }); saveDB(); toast('ลบร้านแล้ว'); renderShops();} return; }
   if(t.dataset.lstPage){ listState.page=parseInt(t.dataset.lstPage); renderSkuList(); return; }
