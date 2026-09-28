@@ -2494,6 +2494,17 @@ function renderSettings(){
         <button id="clearDemo" class="btn btn-ghost"><i data-lucide="eraser" class="w-4 h-4"></i>ล้างข้อมูลทดสอบ (งานตัวอย่าง)</button>
         <button id="resetAll" class="btn btn-danger"><i data-lucide="trash-2" class="w-4 h-4"></i>รีเซ็ตทั้งหมด</button>
       </div>
+      <div class="mt-4 pt-4 border-t" style="border-color:#fecaca;">
+        <p class="font-semibold text-sm text-slate-700 mb-1">รีเซ็ตสถานะงาน</p>
+        <p class="text-xs text-slate-500 mb-3">ล้างสถานะ "ทำแล้ว / กำลังทำ", BigSeller และลิงก์ TikTok ของงาน ให้กลับเป็น "ยังไม่ได้ทำ" — <b>SKU, ผู้ใช้ และร้านค้ายังอยู่ครบ</b></p>
+        <div class="flex flex-wrap gap-2">
+          <select id="resetStatusShop" class="input" style="max-width:260px">
+            <option value="all">ทุกร้าน (${DB.worklogs.length} งาน)</option>
+            ${PLATFORMS.map(pl=>`<optgroup label="${pl}">${DB.shops.filter(s=>s.platform===pl).map(s=>`<option value="${s.id}">${esc(s.code)} (${DB.worklogs.filter(w=>w.shop_id===s.id).length} งาน)</option>`).join('')}</optgroup>`).join('')}
+          </select>
+          <button id="resetStatus" class="btn btn-danger"><i data-lucide="rotate-ccw" class="w-4 h-4"></i>รีเซ็ตสถานะ</button>
+        </div>
+      </div>
     </div>`:''}
   </div>`;
   if(window.lucide) lucide.createIcons();
@@ -2862,6 +2873,22 @@ document.addEventListener('click', e=>{
     DB.tiktoks=DB.tiktoks.filter(t=>!demoWlIds.includes(t.worklog_id) && !/\/@demo\//.test(t.url||''));
     DB.tiktok_jobs=(DB.tiktok_jobs||[]).filter(j=>!j.demo && !/\/@demo\//.test(j.url||''));
     saveDB(); toast('ล้างข้อมูลตัวอย่างแล้ว'); navTo('skulist');
+  }
+  else if(e.target.id==='resetStatus' || e.target.closest('#resetStatus')){
+    if(!isAdmin()) return;
+    const sid = $('#resetStatusShop').value;
+    const shop = sid==='all' ? null : shopById(sid);
+    const targets = DB.worklogs.filter(w => sid==='all' || w.shop_id===sid);
+    if(!targets.length){ toast('ไม่มีสถานะให้รีเซ็ต','info'); return; }
+    const label = shop ? ('ร้าน '+shop.platform+' / '+shop.code) : 'ทุกร้าน';
+    if(!confirm('รีเซ็ตสถานะงานของ '+label+' ทั้งหมด '+targets.length+' รายการ?\n\nสถานะ ทำแล้ว/กำลังทำ, BigSeller และลิงก์ TikTok จะถูกลบ (SKU ยังอยู่)\nแนะนำให้ Export สำรองข้อมูลก่อน')) return;
+    if(sid==='all' && prompt('พิมพ์คำว่า RESET เพื่อยืนยันการรีเซ็ตทุกร้าน')!=='RESET'){ toast('ยกเลิกการรีเซ็ต','info'); return; }
+    const ids = new Set(targets.map(w => w.id));
+    DB.worklogs = DB.worklogs.filter(w => !ids.has(w.id));
+    const ttBefore = DB.tiktoks.length;
+    DB.tiktoks = DB.tiktoks.filter(t => !ids.has(t.worklog_id));
+    logHistory('reset_status', 'รีเซ็ตสถานะ '+label+' '+ids.size+' งาน (ลิงก์ TikTok '+(ttBefore-DB.tiktoks.length)+')');
+    saveDB(); toast('รีเซ็ตสถานะ '+label+' แล้ว ('+ids.size+' งาน)'); renderSettings();
   }
   else if(e.target.id==='resetAll' || e.target.closest('#resetAll')){
     if(!confirm('รีเซ็ตทั้งหมด? ข้อมูลทุกอย่างจะหายไปและกลับเป็นค่าเริ่มต้น')) return;
